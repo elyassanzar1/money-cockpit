@@ -2,6 +2,7 @@ const $ = (s) => document.querySelector(s);
 const money = (n) => (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-US");
 const money2 = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 let DATA = null;
+let didAutoSync = false;
 
 async function api(p, o) {
   const r = await fetch(p, o);
@@ -30,6 +31,13 @@ async function load() {
   $("#footStatus").textContent = synced + " · " + DATA.plaid_env.toUpperCase();
   $("#liveTxt").textContent = DATA.accounts.length ? "SYNCED" : "OFFLINE";
   $("#connectBtn").classList.toggle("hidden", DATA.accounts.length > 0);
+
+  // Fully automatic: refresh from your banks once each time you open the app.
+  if (DATA.accounts.length && !didAutoSync) {
+    didAutoSync = true;
+    $("#liveTxt").textContent = "SYNCING";
+    api("/api/sync", { method: "POST" }).then(() => load()).catch(() => {});
+  }
 }
 
 function drawTicks() {
@@ -257,10 +265,29 @@ $("#syncBtn").addEventListener("click", async () => {
 async function connect() {
   let lt;
   try { lt = (await api("/api/link-token")).link_token; } catch (e) { alert(e.message); return; }
-  Plaid.create({ token: lt, onSuccess: async (pt) => {
-    try { await api("/api/exchange", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ public_token: pt }) }); await load(); }
-    catch (e) { alert(e.message); }
-  }}).open();
+  try { localStorage.setItem("cockpit_link_token", lt); } catch (e) {}
+  openLink(lt);
+}
+
+function openLink(token, receivedRedirectUri) {
+  const cfg = {
+    token,
+    onSuccess: async (pt) => {
+      try { await api("/api/exchange", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ public_token: pt }) }); await load(); }
+      catch (e) { alert(e.message); }
+    },
+  };
+  if (receivedRedirectUri) cfg.receivedRedirectUri = receivedRedirectUri;
+  Plaid.create(cfg).open();
+}
+
+// If a bank (e.g. Chase) sent us back via OAuth, resume the Link flow.
+function resumeOAuthIfNeeded() {
+  if (window.location.search.includes("oauth_state_id")) {
+    let lt = null;
+    try { lt = localStorage.getItem("cockpit_link_token"); } catch (e) {}
+    if (lt) openLink(lt, window.location.href);
+  }
 }
 $("#connectBtn").addEventListener("click", connect);
 
@@ -277,4 +304,5 @@ $("#closeSheet").addEventListener("click", async () => {
 });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+resumeOAuthIfNeeded();
 load().catch((e) => { $("#netWorth").textContent = "ERROR"; $("#footStatus").textContent = e.message; });

@@ -34,6 +34,18 @@ def index():
 
 
 # --- dashboard data ---
+@app.get("/api/diag")
+def diag():
+    """Safe diagnostic: shows whether the server can see your keys, without
+    ever exposing their values. Visit /api/diag in a browser."""
+    return {
+        "client_id_length": len(config.PLAID_CLIENT_ID),
+        "secret_length": len(config.PLAID_SECRET),
+        "plaid_env": config.PLAID_ENV,
+        "redirect_uri": config.PLAID_REDIRECT_URI,
+    }
+
+
 @app.get("/api/dashboard")
 def dashboard():
     return {

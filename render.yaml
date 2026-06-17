@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: money-cockpit
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+      - key: PLAID_ENV
+        value: production
+      - key: BILLS_WIRE
+        value: "2650"
+      - key: SAVINGS_RATE
+        value: "0.40"
+      - key: PLAID_CLIENT_ID
+        sync: false
+      - key: PLAID_SECRET
+        sync: false
+      - key: PLAID_REDIRECT_URI
+        sync: false

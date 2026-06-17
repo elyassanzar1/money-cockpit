@@ -34,6 +34,8 @@ def create_link_token() -> str:
         country_codes=[CountryCode("US")],
         language="en",
     )
+    if config.PLAID_REDIRECT_URI:
+        req.redirect_uri = config.PLAID_REDIRECT_URI
     return _client.link_token_create(req).link_token
 
 
