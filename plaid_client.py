@@ -47,25 +47,31 @@ def exchange_public_token(public_token: str):
     )
     access_token, item_id = res.access_token, res.item_id
     db.save_item(item_id, access_token, institution="")
-    sync_balances(access_token)
+    try:
+        sync_balances(access_token)
+        sync_investments(access_token)
+    except Exception:
+        pass  # link is saved; the next auto-sync will pull the data
     return item_id
 
 
 def sync_balances(access_token: str):
     res = _client.accounts_balance_get(
-        AccountsBalanceGetRequest(access_token=access_token)
+        AccountsBalanceGetRequest(access_token=access_token),
+        _check_return_type=False,
     )
     item_id = res.item.item_id
     for a in res.accounts:
+        bal = getattr(a, "balances", None)
         db.upsert_account({
             "account_id": a.account_id,
             "item_id": item_id,
             "name": a.name,
-            "official_name": a.official_name,
+            "official_name": getattr(a, "official_name", "") or "",
             "type": str(a.type),
             "subtype": str(a.subtype) if a.subtype else "",
-            "current": a.balances.current,
-            "available": a.balances.available,
+            "current": getattr(bal, "current", None) if bal else None,
+            "available": getattr(bal, "available", None) if bal else None,
         })
 
 
@@ -73,21 +79,23 @@ def sync_investments(access_token: str):
     """Refresh brokerage / 401k balances (Robinhood, Fidelity)."""
     try:
         res = _client.investments_holdings_get(
-            InvestmentsHoldingsGetRequest(access_token=access_token)
+            InvestmentsHoldingsGetRequest(access_token=access_token),
+            _check_return_type=False,
         )
-    except plaid.ApiException:
-        return  # institution may not support investments product
+    except Exception:
+        return  # institution may not support investments, or returned odd data
     item_id = res.item.item_id
     for a in res.accounts:
+        bal = getattr(a, "balances", None)
         db.upsert_account({
             "account_id": a.account_id,
             "item_id": item_id,
             "name": a.name,
-            "official_name": a.official_name,
+            "official_name": getattr(a, "official_name", "") or "",
             "type": str(a.type),
             "subtype": str(a.subtype) if a.subtype else "",
-            "current": a.balances.current,
-            "available": a.balances.available,
+            "current": getattr(bal, "current", None) if bal else None,
+            "available": getattr(bal, "available", None) if bal else None,
         })
 
 
@@ -101,7 +109,7 @@ def sync_transactions(access_token: str, cursor: str | None):
         kwargs = {"access_token": access_token}
         if cur:
             kwargs["cursor"] = cur
-        res = _client.transactions_sync(TransactionsSyncRequest(**kwargs))
+        res = _client.transactions_sync(TransactionsSyncRequest(**kwargs), _check_return_type=False)
         for t in list(res.added) + list(res.modified):
             pfc = ""
             if t.personal_finance_category:
