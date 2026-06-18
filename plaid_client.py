@@ -39,13 +39,25 @@ def create_link_token() -> str:
     return _client.link_token_create(req).link_token
 
 
+def _as_dict(obj):
+    """Normalize a Plaid response (model or dict) into a plain dict so we can
+    read it consistently regardless of how the SDK deserializes it."""
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    if hasattr(obj, "to_dict"):
+        return obj.to_dict()
+    return obj
+
+
 def exchange_public_token(public_token: str):
     """Turn the one-time public token from Plaid Link into a permanent
     access token, and store the item."""
-    res = _client.item_public_token_exchange(
+    res = _as_dict(_client.item_public_token_exchange(
         ItemPublicTokenExchangeRequest(public_token=public_token)
-    )
-    access_token, item_id = res.access_token, res.item_id
+    ))
+    access_token, item_id = res.get("access_token"), res.get("item_id")
     db.save_item(item_id, access_token, institution="")
     try:
         sync_balances(access_token)
@@ -55,80 +67,74 @@ def exchange_public_token(public_token: str):
     return item_id
 
 
+def _store_accounts(data):
+    item_id = (data.get("item") or {}).get("item_id")
+    for a in data.get("accounts", []):
+        bal = a.get("balances") or {}
+        sub = a.get("subtype")
+        db.upsert_account({
+            "account_id": a.get("account_id"),
+            "item_id": item_id,
+            "name": a.get("name"),
+            "official_name": a.get("official_name") or "",
+            "type": str(a.get("type")),
+            "subtype": str(sub) if sub else "",
+            "current": bal.get("current"),
+            "available": bal.get("available"),
+        })
+
+
 def sync_balances(access_token: str):
-    res = _client.accounts_balance_get(
+    res = _as_dict(_client.accounts_balance_get(
         AccountsBalanceGetRequest(access_token=access_token),
         _check_return_type=False,
-    )
-    item_id = res.item.item_id
-    for a in res.accounts:
-        bal = getattr(a, "balances", None)
-        db.upsert_account({
-            "account_id": a.account_id,
-            "item_id": item_id,
-            "name": a.name,
-            "official_name": getattr(a, "official_name", "") or "",
-            "type": str(a.type),
-            "subtype": str(a.subtype) if a.subtype else "",
-            "current": getattr(bal, "current", None) if bal else None,
-            "available": getattr(bal, "available", None) if bal else None,
-        })
+    ))
+    _store_accounts(res)
 
 
 def sync_investments(access_token: str):
     """Refresh brokerage / 401k balances (Robinhood, Fidelity)."""
     try:
-        res = _client.investments_holdings_get(
+        res = _as_dict(_client.investments_holdings_get(
             InvestmentsHoldingsGetRequest(access_token=access_token),
             _check_return_type=False,
-        )
+        ))
     except Exception:
         return  # institution may not support investments, or returned odd data
-    item_id = res.item.item_id
-    for a in res.accounts:
-        bal = getattr(a, "balances", None)
-        db.upsert_account({
-            "account_id": a.account_id,
-            "item_id": item_id,
-            "name": a.name,
-            "official_name": getattr(a, "official_name", "") or "",
-            "type": str(a.type),
-            "subtype": str(a.subtype) if a.subtype else "",
-            "current": getattr(bal, "current", None) if bal else None,
-            "available": getattr(bal, "available", None) if bal else None,
-        })
+    _store_accounts(res)
 
 
 def sync_transactions(access_token: str, cursor: str | None):
     """Pull new/modified/removed transactions since last cursor.
     Returns the new cursor to persist."""
-    added = modified = removed = []
     has_more = True
     cur = cursor
     while has_more:
         kwargs = {"access_token": access_token}
         if cur:
             kwargs["cursor"] = cur
-        res = _client.transactions_sync(TransactionsSyncRequest(**kwargs), _check_return_type=False)
-        for t in list(res.added) + list(res.modified):
-            pfc = ""
-            if t.personal_finance_category:
-                pfc = str(t.personal_finance_category.primary)
+        res = _as_dict(_client.transactions_sync(
+            TransactionsSyncRequest(**kwargs), _check_return_type=False))
+        for t in res.get("added", []) + res.get("modified", []):
+            cat = t.get("personal_finance_category") or {}
+            pfc = str(cat.get("primary", "")) if cat else ""
+            d = t.get("date")
+            date_str = d.isoformat() if hasattr(d, "isoformat") else str(d)
             db.upsert_transaction({
-                "txn_id": t.transaction_id,
-                "account_id": t.account_id,
-                "date": t.date.isoformat() if hasattr(t.date, "isoformat") else str(t.date),
-                "name": t.name,
-                "merchant": t.merchant_name or "",
-                "amount": t.amount,
+                "txn_id": t.get("transaction_id"),
+                "account_id": t.get("account_id"),
+                "date": date_str,
+                "name": t.get("name"),
+                "merchant": t.get("merchant_name") or "",
+                "amount": t.get("amount"),
                 "pfc_primary": pfc,
                 "envelope": map_envelope(pfc),
-                "pending": 1 if t.pending else 0,
+                "pending": 1 if t.get("pending") else 0,
             })
-        for t in res.removed:
-            db.delete_transaction(t.transaction_id)
-        cur = res.next_cursor
-        has_more = res.has_more
+        for t in res.get("removed", []):
+            db.delete_transaction(t.get("transaction_id"))
+        cur = res.get("next_cursor")
+        has_more = res.get("has_more", False)
     return cur
 
 
