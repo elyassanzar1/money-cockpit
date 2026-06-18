@@ -43,6 +43,7 @@ def seed():
         ("pay2", -2300, "INCOME", 15, "Direct Deposit - Thermo Fisher", "chk"),
         # the bills wire (excluded from spend tracking, handled in separate account)
         ("billwire", 2650, "TRANSFER_OUT", 2, "Wire to Bills Account", "chk"),
+        ("loan", 284, "LOAN_PAYMENTS", 5, "Dept of Education Student Ln", "chk"),
         # discretionary spending — what you actually manage
         ("g1", 118.4, "FOOD_AND_DRINK", 2, "ShopRite", "chk"),
         ("g2", 86.2, "FOOD_AND_DRINK", 9, "Costco", "chk"),

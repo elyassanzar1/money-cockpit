@@ -14,15 +14,15 @@ from config import SAVINGS_RATE, EMERGENCY_MONTHS, BILLS_WIRE
 PFC_TO_ENVELOPE = {
     "FOOD_AND_DRINK": "Food & Groceries",
     "GENERAL_MERCHANDISE": "Shopping",
-    "TRANSPORTATION": "Transport",
-    "TRAVEL": "Travel",
+    "TRANSPORTATION": "Fun",          # no gas/tolls (employer pays); Citi Bike = fun
+    "TRAVEL": "Fun",
     "RENT_AND_UTILITIES": "Bills (handled)",
-    "LOAN_PAYMENTS": "Bills (handled)",
+    "LOAN_PAYMENTS": "Student Loan",  # Dept of Ed loan, billed separately from the wire
     "ENTERTAINMENT": "Fun",
-    "PERSONAL_CARE": "Personal",
-    "GENERAL_SERVICES": "Services",
+    "PERSONAL_CARE": "Fun",           # personal merged into fun
+    "GENERAL_SERVICES": "Shopping",
     "MEDICAL": "Medical",
-    "HOME_IMPROVEMENT": "Home",
+    "HOME_IMPROVEMENT": "Shopping",
     "GOVERNMENT_AND_NON_PROFIT": "Other",
 }
 
@@ -30,13 +30,12 @@ PFC_TO_ENVELOPE = {
 INFLOW_PFCS = {"INCOME", "TRANSFER_IN"}
 # Movements never counted as discretionary spending (incl. the bills wire).
 IGNORE_PFCS = {"TRANSFER_OUT", "BANK_FEES"}
-# Bills are wired to a separate account and handled there, not tracked daily.
-HANDLED_ENVELOPES = {"Bills (handled)", "Zakat"}
+# Handled/fixed — shown but excluded from the discretionary spending budget.
+HANDLED_ENVELOPES = {"Bills (handled)", "Zakat", "Student Loan"}
 
-# Only what you actually manage day-to-day. Bills live in the wired account.
+# What you actually manage day-to-day. Recommended starting amounts.
 DEFAULT_ENVELOPES = {
-    "Food & Groceries": 700, "Transport": 200, "Shopping": 200,
-    "Fun": 120, "Personal": 80,
+    "Food & Groceries": 600, "Shopping": 200, "Fun": 250,
 }
 
 
@@ -261,14 +260,23 @@ def monthly_surplus() -> float:
 # Of your spendable money (income minus the bills wire), this is the plan.
 PAYF_SPLIT = {"Invest": 40, "Zakat": 5, "Living": 55}  # sums to 100
 BUCKET_ACCENTS = {"Living": "#34E3FF", "Invest": "#3DF5A0", "Zakat": "#A98BFF", "Bills": "#6F88A0"}
-LIVING_ENVELOPES = ["Food & Groceries", "Transport", "Shopping", "Fun", "Personal", "Home"]
+LIVING_ENVELOPES = ["Food & Groceries", "Shopping", "Fun", "Medical", "Other"]
+
+
+def _student_loan(today=None):
+    """Detected from your account: the Dept of Ed loan payment this month."""
+    today = today or date.today()
+    txns = db.get_transactions(since=_month_start(today), limit=5000)
+    return round(sum(t["amount"] for t in txns
+                     if t["envelope"] == "Student Loan" and t["amount"] > 0), 2)
 
 
 def income_allocation(today=None):
     today = today or date.today()
     income = monthly_avg_income()
     bills = BILLS_WIRE
-    spendable = max(0.0, round(income - bills, 2))
+    loan = _student_loan(today)
+    spendable = max(0.0, round(income - bills - loan, 2))
     spent = {e["name"]: e["spent"] for e in envelope_state(today)}
     txns = db.get_transactions(since=_month_start(today), limit=5000)
 
@@ -291,12 +299,13 @@ def income_allocation(today=None):
             "accent": BUCKET_ACCENTS[name],
             "status": "over" if a > target * 1.05 else "under" if a < target * 0.6 else "ok",
         })
-    return {"income": income, "bills": bills, "spendable": spendable, "buckets": buckets}
+    return {"income": income, "bills": bills, "student_loan": loan,
+            "spendable": spendable, "buckets": buckets}
 
 
 def invest_target() -> float:
     """The pay-yourself-first amount the plan says to invest each month."""
-    spendable = max(0.0, monthly_avg_income() - BILLS_WIRE)
+    spendable = max(0.0, monthly_avg_income() - BILLS_WIRE - _student_loan())
     return round(spendable * PAYF_SPLIT["Invest"] / 100, 2)
 
 

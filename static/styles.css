@@ -39,6 +39,9 @@ body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);min-height:1
 .eyebrow.tiny{font-size:9px;letter-spacing:.16em}
 .section-label{display:flex;align-items:center;gap:10px;margin:24px 4px 12px;color:var(--cyan-dim)}
 .section-label .left-tag{margin-left:auto;color:var(--mint);font-family:var(--mono);letter-spacing:0;font-size:12px}
+.mini-link{margin-left:auto;background:transparent;border:1px solid var(--line-2);color:var(--cyan);
+  font-family:var(--hud);font-size:10px;letter-spacing:.12em;padding:5px 11px;border-radius:8px;cursor:pointer}
+.mini-link:active{background:var(--glass-2)}
 
 /* status bar */
 .statusbar{display:flex;align-items:center;justify-content:space-between;padding:18px 4px 6px}
@@ -216,3 +219,14 @@ body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);min-height:1
 .fs-row .fs-v{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .fs-row.total{border-top:1px solid var(--line);margin-top:4px;padding-top:9px;font-weight:600}
 .fs-row.total .fs-v{color:var(--cyan)}
+
+/* expandable spending category detail */
+.env-head{cursor:pointer}
+.env-caret{display:inline-block;color:var(--muted);font-size:14px;transition:transform .25s;margin-left:4px}
+.env.open .env-caret{transform:rotate(180deg)}
+.env-detail{max-height:0;overflow:hidden;transition:max-height .3s ease;margin-top:0}
+.env.open .env-detail{max-height:600px;margin-top:12px}
+.ed-row{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:7px 0;border-top:1px solid var(--line)}
+.ed-row span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ed-d{font-family:var(--mono);color:var(--muted);font-size:11px}
+.ed-a{font-family:var(--mono);font-variant-numeric:tabular-nums}

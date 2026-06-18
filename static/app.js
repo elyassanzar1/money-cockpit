@@ -3,6 +3,7 @@ const money = (n) => (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleStri
 const money2 = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 let DATA = null;
 let didAutoSync = false;
+let TXNS = [];
 
 async function api(p, o) {
   const r = await fetch(p, o);
@@ -13,6 +14,7 @@ async function api(p, o) {
 async function load() {
   DATA = await api("/api/dashboard");
   const history = await api("/api/history").catch(() => []);
+  TXNS = await api("/api/transactions?limit=300").catch(() => []);
   drawTicks();
   renderCore(history);
   drawChart(history);
@@ -199,6 +201,7 @@ function renderFlow() {
     <div class="flow-summary">
       <div class="fs-row"><span>Income</span><span class="fs-v">${money(a.income)}</span></div>
       <div class="fs-row sub"><span>− Bills (wired out)</span><span class="fs-v">${money(a.bills)}</span></div>
+      ${a.student_loan ? `<div class="fs-row sub"><span>− Student loan</span><span class="fs-v">${money(a.student_loan)}</span></div>` : ""}
       <div class="fs-row total"><span>Spendable</span><span class="fs-v">${money(a.spendable)}</span></div>
     </div>
     <div class="eyebrow tiny" style="margin:4px 0 10px;color:var(--cyan-dim)">PAY YOURSELF FIRST · split of spendable</div>
@@ -226,13 +229,26 @@ function renderEnvelopes() {
   const left = DATA.envelopes.reduce((s, e) => s + Math.max(0, e.remaining), 0);
   $("#leftTag").textContent = money(left) + " LEFT";
   const el = $("#envelopes");
-  el.innerHTML = DATA.envelopes.filter((e) => e.allocated > 0 || e.spent > 0).map((e) => {
+  const monthPrefix = new Date().toISOString().slice(0, 7);
+  el.innerHTML = DATA.envelopes.filter((e) => e.allocated > 0 || e.spent > 0).map((e, i) => {
     const cls = e.remaining < 0 ? "over" : e.pct_used >= 80 ? "warn" : "good";
-    return `<div class="env ${cls}">
-      <div class="env-top"><div><span class="env-name">${e.name}</span><span class="env-meta">${money(e.spent)} / ${money(e.allocated)}</span></div>
-      <div class="env-remaining">${money(e.remaining)}</div></div>
-      <div class="track"><div class="fill" style="width:${Math.min(100, e.pct_used)}%"></div></div></div>`;
+    // transactions that make up this category's spend, this month
+    const items = TXNS.filter((t) => t.envelope === e.name && t.amount > 0 && (t.date || "").slice(0, 7) === monthPrefix)
+      .sort((a, b) => b.amount - a.amount);
+    const detail = items.length
+      ? items.map((t) => `<div class="ed-row"><span>${t.merchant || t.name}</span><span class="ed-d">${t.date.slice(5)}</span><span class="ed-a">${money2(t.amount)}</span></div>`).join("")
+      : `<div class="ed-row"><span style="color:var(--muted)">No transactions yet this month</span></div>`;
+    return `<div class="env ${cls}" data-i="${i}">
+      <div class="env-head">
+        <div class="env-top"><div><span class="env-name">${e.name}</span><span class="env-meta">${money(e.spent)} / ${money(e.allocated)}</span></div>
+        <div class="env-remaining">${money(e.remaining)} <span class="env-caret">⌄</span></div></div>
+        <div class="track"><div class="fill" style="width:${Math.min(100, e.pct_used)}%"></div></div>
+      </div>
+      <div class="env-detail">${detail}</div></div>`;
   }).join("");
+  el.querySelectorAll(".env").forEach((card) => {
+    card.querySelector(".env-head").addEventListener("click", () => card.classList.toggle("open"));
+  });
 }
 
 function renderRecurring() {
@@ -290,6 +306,7 @@ function resumeOAuthIfNeeded() {
   }
 }
 $("#connectBtn").addEventListener("click", connect);
+document.getElementById("addAcct")?.addEventListener("click", connect);
 
 $("#addEnvelope").addEventListener("click", () => {
   $("#budgetEditor").innerHTML = DATA.envelopes.map((e) =>
